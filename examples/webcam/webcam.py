@@ -10,6 +10,7 @@ from aiohttp import web
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.contrib.media import MediaPlayer, MediaRelay
+from aiortc.rtcrtpsender import RTCRtpSender
 
 ROOT = os.path.dirname(__file__)
 
@@ -18,14 +19,15 @@ relay = None
 webcam = None
 
 
-def create_local_tracks(play_from):
+def create_local_tracks(play_from, transcode=True, options=None):
     global relay, webcam
 
     if play_from:
-        player = MediaPlayer(play_from)
+        player = MediaPlayer(play_from, transcode=transcode)
         return player.audio, player.video
     else:
-        options = {"framerate": "30", "video_size": "640x480"}
+        if options is None:
+            options = {"framerate": "30", "video_size": "640x480"}
         if relay is None:
             if platform.system() == "Darwin":
                 webcam = MediaPlayer(
@@ -36,7 +38,8 @@ def create_local_tracks(play_from):
                     "video=Integrated Camera", format="dshow", options=options
                 )
             else:
-                webcam = MediaPlayer("/dev/video0", format="v4l2", options=options)
+                webcam = MediaPlayer("/dev/video0", format="v4l2", transcode=transcode, options=options)
+
             relay = MediaRelay()
         return None, relay.subscribe(webcam.video)
 
@@ -66,14 +69,21 @@ async def offer(request):
             pcs.discard(pc)
 
     # open media source
-    audio, video = create_local_tracks(args.play_from)
+    audio, video = create_local_tracks(args.play_from, transcode=args.transcode, options=args.video_options)
+
+    if video:
+        pc.addTrack(video)
+        if args.preferred_codec:
+            # Filter for only for the preferred_codec
+            codecs = RTCRtpSender.getCapabilities("video").codecs
+            preferences = [codec for codec in codecs if codec.mimeType == args.preferred_codec]
+            transceiver = pc.getTransceivers()[0]
+            transceiver.setCodecPreferences(preferences)
 
     await pc.setRemoteDescription(offer)
     for t in pc.getTransceivers():
         if t.kind == "audio" and audio:
             pc.addTrack(audio)
-        elif t.kind == "video" and video:
-            pc.addTrack(video)
 
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
@@ -108,6 +118,14 @@ if __name__ == "__main__":
         "--port", type=int, default=8080, help="Port for HTTP server (default: 8080)"
     )
     parser.add_argument("--verbose", "-v", action="count")
+    parser.add_argument("--preferred-codec", help="Preferred codec to use (e.g. video/H264)")
+    parser.add_argument("--video-options", type=json.loads, help="Options to pass into av.open")
+
+    transcode_parser = parser.add_mutually_exclusive_group(required=False)
+    transcode_parser.add_argument('--transcode', dest='transcode', action='store_true')
+    transcode_parser.add_argument('--no-transcode', dest='transcode', action='store_false')
+    parser.set_defaults(transcode=True)
+
     args = parser.parse_args()
 
     if args.verbose:

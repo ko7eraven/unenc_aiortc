@@ -186,7 +186,7 @@ def player_worker(
             elif isinstance(*streams, VideoStream):
                 if packet.pts is None:
                     logger.warning(
-                        "MediaPlayer(%s) Skipping video frame with no pts", container.name
+                        "MediaPlayer(%s) Skipping video packet with no pts", container.name
                     )
                     continue
 
@@ -500,6 +500,33 @@ class RelayStreamTrack(MediaStreamTrack):
             self._source = None
 
 
+class RelayStreamNativeTrack(MediaStreamNativeTrack):
+    def __init__(self, relay, source: MediaStreamNativeTrack) -> None:
+        super().__init__()
+        self.kind = source.kind
+        self._relay = relay
+        self._queue: asyncio.Queue[Optional[Frame]] = asyncio.Queue()
+        self._source: Optional[MediaStreamNativeTrack] = source
+
+    async def recv(self):
+        if self.readyState != "live":
+            raise MediaStreamError
+
+        self._relay._start(self)
+        frame = await self._queue.get()
+        if frame is None:
+            self.stop()
+            raise MediaStreamError
+        return frame
+
+    def stop(self):
+        super().stop()
+        if self._relay is not None:
+            self._relay._stop(self)
+            self._relay = None
+            self._source = None
+
+
 class MediaRelay:
     """
     A media source that relays one or more tracks to multiple consumers.
@@ -509,20 +536,26 @@ class MediaRelay:
     """
 
     def __init__(self) -> None:
-        self.__proxies: Dict[MediaStreamTrack, Set[RelayStreamTrack]] = {}
-        self.__tasks: Dict[MediaStreamTrack, asyncio.Future[None]] = {}
+        self.__proxies: Dict[Union[MediaStreamTrack, MediaStreamNativeTrack], Set[RelayStreamTrack]] = {}
+        self.__tasks: Dict[Union[MediaStreamTrack, MediaStreamNativeTrack], asyncio.Future[None]] = {}
 
-    def subscribe(self, track: MediaStreamTrack) -> MediaStreamTrack:
+    def subscribe(
+        self, 
+        track: Union[MediaStreamTrack, MediaStreamNativeTrack]
+    ) -> Union[MediaStreamTrack, MediaStreamNativeTrack]:
         """
         Create a proxy around the given `track` for a new consumer.
         """
-        proxy = RelayStreamTrack(self, track)
+        if isinstance(track, MediaStreamTrack):
+            proxy = RelayStreamTrack(self, track)
+        else:
+            proxy = RelayStreamNativeTrack(self, track)
         self.__log_debug("Create proxy %s for source %s", id(proxy), id(track))
         if track not in self.__proxies:
             self.__proxies[track] = set()
         return proxy
 
-    def _start(self, proxy: RelayStreamTrack) -> None:
+    def _start(self, proxy: Union[RelayStreamTrack, RelayStreamNativeTrack]) -> None:
         track = proxy._source
         if track is not None and track in self.__proxies:
             # register proxy
@@ -534,7 +567,7 @@ class MediaRelay:
             if track not in self.__tasks:
                 self.__tasks[track] = asyncio.ensure_future(self.__run_track(track))
 
-    def _stop(self, proxy: RelayStreamTrack) -> None:
+    def _stop(self, proxy: Union[RelayStreamTrack, RelayStreamNativeTrack]) -> None:
         track = proxy._source
         if track is not None and track in self.__proxies:
             # unregister proxy
@@ -544,7 +577,7 @@ class MediaRelay:
     def __log_debug(self, msg: str, *args) -> None:
         logger.debug(f"MediaRelay(%s) {msg}", id(self), *args)
 
-    async def __run_track(self, track: MediaStreamTrack) -> None:
+    async def __run_track(self, track: Union[MediaStreamTrack, MediaStreamNativeTrack]) -> None:
         self.__log_debug("Start reading source %s" % id(track))
 
         while True:
