@@ -23,11 +23,12 @@ def create_local_tracks(play_from, transcode=True, options=None):
     global relay, webcam
 
     if play_from:
+        print("Playing from :", play_from)
         player = MediaPlayer(play_from, transcode=transcode)
         return player.audio, player.video
     else:
         if options is None:
-            options = {"framerate": "30", "video_size": "640x480"}
+            options = {"video_size": "640x480"}
         if relay is None:
             if platform.system() == "Darwin":
                 webcam = MediaPlayer(
@@ -38,7 +39,8 @@ def create_local_tracks(play_from, transcode=True, options=None):
                     "video=Integrated Camera", format="dshow", options=options
                 )
             else:
-                webcam = MediaPlayer("/dev/video0", format="v4l2", transcode=transcode, options=options)
+                #webcam = MediaPlayer("/dev/video99", format="v4l2", transcode=transcode, options=options)
+                webcam = MediaPlayer("/dev/video99", transcode=transcode, options=options)
 
             relay = MediaRelay()
         return None, relay.subscribe(webcam.video)

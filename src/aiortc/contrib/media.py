@@ -185,15 +185,17 @@ def player_worker(
             elif isinstance(*streams, VideoStream):
                 if packet.pts is None:
                     logger.warning(
-                        "MediaPlayer(%s) Skipping video packet with no pts", container.name
+                        "MediaPlayer(%s) WOULD Skip video packet with no pts", container.name
                     )
-                    continue
+                    #continue
 
                 # video from a webcam doesn't start at pts 0, cancel out offset
                 if video_first_pts is None:
-                    video_first_pts = packet.pts
-                packet.pts -= video_first_pts
-
+                    video_first_pts = time.time()
+                    #video_first_pts = packet.pts
+                #packet.pts -= video_first_pts
+                packet.pts = time.time()-video_first_pts
+                print("PACKET PTS", packet.pts)
                 frame_time = int(packet.pts * packet.time_base)
                 asyncio.run_coroutine_threadsafe(video_track._queue.put(packet), loop)
             else:

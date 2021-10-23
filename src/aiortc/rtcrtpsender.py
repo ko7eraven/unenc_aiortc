@@ -253,6 +253,7 @@ class RTCRtpSender:
             self.__encoder = get_encoder(codec)
 
         if isinstance(data, Frame):
+            print("FrameInstance")
             # encode frame
             force_keyframe = self.__force_keyframe
             self.__force_keyframe = False
@@ -260,6 +261,7 @@ class RTCRtpSender:
                 None, self.__encoder.encode, data, force_keyframe
             )        
         else:
+            print("Not frame instance,data:", data)
             return self.__encoder.pack(data)
 
     async def _retransmit(self, sequence_number: int) -> None:
@@ -297,7 +299,7 @@ class RTCRtpSender:
                 if not self.__track:
                     await asyncio.sleep(0.02)
                     continue
-
+                print("CODEC:" , codec)
                 payloads, timestamp = await self._next_encoded_frame(codec)
                 timestamp = uint32_add(timestamp_origin, timestamp)
 

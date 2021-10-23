@@ -124,6 +124,7 @@ class H264Decoder(Decoder):
 def create_encoder_context(
     codec_name: str, width: int, height: int, bitrate: int
 ) -> Tuple[av.CodecContext, bool]:
+    print("CODEC_NAME:", codec_name)
     codec = av.CodecContext.create(codec_name, "w")
     codec.width = width
     codec.height = height
@@ -322,6 +323,9 @@ class H264Encoder(Encoder):
     ) -> Tuple[List[bytes], int]:
         assert isinstance(packet, av.Packet)
         packages = self._split_bitstream(packet.to_bytes())
+        print("Pack : pakcet.dts ", packet.dts)
+        if(packet.dts is None):
+            packet.dts = 0
         return self._packetize(packages), int(packet.dts)
 
     @property
